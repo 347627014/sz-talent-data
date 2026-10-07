@@ -145,6 +145,7 @@ th{
 }
 td{padding:10px 14px;border-bottom:1px solid var(--line-2);vertical-align:middle}
 tbody tr:hover{background:var(--brand-lt)}
+#deptTable tbody tr[data-pi]{cursor:pointer}
 tbody tr.row-danger{background:var(--accent-lt)}
 tbody tr.row-danger:hover{background:#FBDDDD}
 td.nowrap,.nowrap{white-space:nowrap}
@@ -283,6 +284,15 @@ td.nowrap,.nowrap{white-space:nowrap}
 .ic-value.sm{font-size:14px;font-weight:600}
 .ic-sub{font-size:11px;color:var(--tx-3);margin-top:3px}
 .ic-value.muted{color:var(--tx-3);font-weight:600;font-size:14px}
+/* 部门视图：KPI 卡 / 图表条点击下钻 */
+.info-cell.kpi-click{cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.info-cell.kpi-click:hover{border-color:var(--brand)}
+.info-cell.kpi-active{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-lt)}
+.chart-hint{font-size:11px;color:var(--tx-3);font-weight:400}
+.bar-row.bar-click{cursor:pointer}
+.bar-row.bar-click:hover .bar-fill{opacity:.82}
+.bar-row.bar-active .bar-label{color:var(--brand);font-weight:700}
+.bar-row.bar-active .bar-fill{box-shadow:0 0 0 2px var(--brand-lt)}
 
 .validity{margin-top:16px;background:var(--bg);border:1px solid var(--line-2);border-radius:10px;padding:14px 16px}
 .v-head{display:flex;justify-content:space-between;font-size:12px;color:var(--tx-2);margin-bottom:8px}
@@ -634,10 +644,28 @@ tbody tr[data-mi]{cursor:pointer}
 .mut-wrap{max-height:none}
 .mut-table{font-size:14px}
 .mut-table .mut-parent{font-weight:600;color:var(--tx-2);white-space:nowrap}
-.mut-table .mut-unit{color:var(--tx)}
+.mut-table .mut-unit{color:var(--tx);width:38%;min-width:240px;white-space:normal}
+/* 部门名可点：跳转到该部门人岗匹配明细 */
+.mut-table .mut-dept{font:inherit;color:var(--brand);text-align:left;white-space:normal;line-height:1.45}
+.mut-table .mut-dept:hover{text-decoration:underline}
+.mut-table .mut-dept-plain{color:var(--tx-2)}
+.mut-tag{display:inline-block;margin-top:3px;padding:1px 6px;border-radius:4px;background:var(--line-2);
+  color:var(--tx-2);font-size:11px;line-height:1.6}
+.mut-note{padding:10px 16px 14px;font-size:12px;color:var(--tx-2);border-top:1px solid var(--line-2);line-height:1.7}
 .mut-table .mut-rate{font-weight:700;text-align:center;white-space:nowrap}
 .mut-table .mut-rate.ok{color:var(--ok)}
 .mut-table .mut-rate.low{color:var(--accent)}
+/* 排名标色：前三名绿、末三名红；中间为中性色（避免满屏红绿） */
+.mut-table .mut-rate.mid{color:var(--tx-2)}
+.mut-table .mut-rate.na{color:var(--tx-3)}
+.mut-table tr.mut-top td{background:rgba(0,140,90,.05)}
+.mut-table tr.mut-bottom td{background:rgba(214,39,40,.05)}
+.mut-table .mut-rank{width:52px;min-width:52px;text-align:center;color:var(--tx-3);font-variant-numeric:tabular-nums}
+.mut-table tr.mut-top .mut-rank{color:var(--ok);font-weight:700}
+.mut-table tr.mut-top .mut-rate.ok{font-weight:700}
+.mut-table tr.mut-bottom .mut-rank{color:var(--accent);font-weight:700}
+.mut-note .ok-txt{color:var(--ok)}
+.mut-note .low-txt{color:var(--accent)}
 .mut-table tr.mut-sub{background:#F4F7FA}
 .mut-table tr.mut-sub td{font-weight:600;border-top:2px solid var(--line);border-bottom:1px solid var(--line-2)}
 .mut-table tr.mut-grand{background:var(--brand-lt)}
