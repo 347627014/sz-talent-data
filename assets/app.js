@@ -197,7 +197,10 @@ function barChart(rows, opt) {
     var cls = opt.cls ? opt.cls(r, n) : '';
     var pct = (r.v / max * 100).toFixed(1);
     var val = opt.val ? opt.val(r) : fmt(r.v) + ' 人';
-    return '<div class="bar-row ' + cls + '">' +
+    var clickCls = opt.click ? ' bar-click' : '';
+    var actCls = (opt.active && opt.active(r, n)) ? ' bar-active' : '';
+    return '<div class="bar-row ' + cls + clickCls + actCls + '"' +
+      (opt.click ? ' data-bclick="' + opt.click + '" data-bidx="' + n + '" title="点击查看明细"' : '') + '>' +
       '<div class="bar-label" title="' + esc(r.name) + '">' + esc(r.name) + '</div>' +
       '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div>' +
       '<div class="bar-val">' + val + '</div></div>';
@@ -264,7 +267,18 @@ $$('.nav-item').forEach(function (a) {
 });
 document.addEventListener('click', function (e) {
   var g = e.target.closest('[data-goto]');
-  if (g) switchView(g.dataset.goto);
+  if (!g) return;
+  var dp = g.dataset ? g.dataset.dept : '';
+  if (dp && dp.indexOf('（通报数据）') < 0) {
+    // 汇总表点部门名 → 跳到人岗匹配明细，并自动按该部门筛选
+    var inL1 = (M.l1.rows || []).some(function (r) { return r.dept === dp; });
+    MF.cat = inL1 ? 'l1' : 'l2';
+    MF.unit = ''; MF.dept = dp; MF.state = 'all'; MF.page = 1;
+    switchView(g.dataset.goto);
+    renderMatch();          // switchView 只切视图不重绘，必须显式重渲染，否则看起来"点了没反应"
+    return;
+  }
+  switchView(g.dataset.goto);
 });
 
 /* ============================ 整体视图 ============================ */
@@ -851,8 +865,10 @@ function renderResult(p) {
     el.innerHTML = tagTableHtml(tags, false);
   });
 }
-function ic(label, val, sub, cls) {
-  return '<div class="info-cell"><div class="ic-label">' + esc(label) + '</div>' +
+function ic(label, val, sub, cls, key, active) {
+  return '<div class="info-cell' + (key ? ' kpi-click' : '') + (active ? ' kpi-active' : '') + '"' +
+    (key ? ' data-ickey="' + key + '" title="点击查看明细"' : '') + '>' +
+    '<div class="ic-label">' + esc(label) + '</div>' +
     '<div class="ic-value ' + (cls || '') + '">' + esc(val) + '</div>' +
     (sub ? '<div class="ic-sub">' + esc(sub) + '</div>' : '') + '</div>';
 }
@@ -1134,54 +1150,123 @@ $('#expiryExport').addEventListener('click', function () {
 /* ============================ 部门视图 ============================ */
 /* 部门人才视图：部门口径统一采用「云网工程师认证明细」的所属部门（p.dept），
    与整体人才视图/专家/到期预警一致；不再单独维护部门视图目标清单。 */
-var DF = { unit: DEPT_UNITS[0] || '', page: 1 };
+var DF = { unit: '', page: 1, kw: '', pro: '', lvl: '', special: '', gradeVal: '' };   // unit=''=全部单位
 var DF_SIZE = 25;
-function renderDeptFilter() {
-  $('#deptFilter').innerHTML = '<select id="dfDept">' +
-    DEPT_UNITS.map(function (u) {
-      return '<option' + (u === DF.unit ? ' selected' : '') + '>' + esc(u) + '（' + DEPT_MEMBERS[u].length + '人）</option>';
-    }).join('') + '</select><span class="f-label" id="dfCount"></span>';
-  $('#dfDept').addEventListener('change', function () {
-    DF.unit = this.value.replace(/（\d+人）$/, ''); DF.page = 1; renderDept();
+/* special：汇总下钻过滤（点 KPI 卡/图表条后生效）''=无；
+   cert=已认证、l3plus=L3及以上、exp=在聘专家、grade=指定工程师等级(gradeVal) */
+var DF_SPECIAL_LABEL = { cert: '已认证', l3plus: 'L3 及以上', exp: '在聘专家' };
+/* 部门视图头部当前渲染的图表行数据（供点击下钻取行名） */
+var DEPT_HEAD_ROWS = { grade: [], pro: [] };
+/* 当前部门范围（''=全部单位 → 明细中的全部云网工程师） */
+function deptScopeMembers() { return DF.unit ? (DEPT_MEMBERS[DF.unit] || []) : ALL; }
+/* 检索过滤：姓名/编码(MSS)关键词 + 专业名称 + 等级。
+   专业/等级按「认证」类三级标签匹配（与 TOP10 同口径）；检索只过滤名册表，不影响上方 KPI 与图表。 */
+function deptSearchFilter(members) {
+  var kw = (DF.kw || '').trim().toLowerCase();
+  return members.filter(function (i) {
+    var p = P(i);
+    if (kw && (p.name + ' ' + p.code + ' ' + p.dept).toLowerCase().indexOf(kw) < 0) return false;
+    /* 汇总下钻：与 KPI 卡同口径 */
+    if (DF.special === 'cert' && !p.grade) return false;
+    if (DF.special === 'l3plus' && !(p.gradeLvl >= 3)) return false;
+    if (DF.special === 'exp' && !p.expert) return false;
+    if (DF.special === 'grade') {
+      /* 「未认证」条目匹配 grade 为空的人员，其余按等级名精确匹配 */
+      var gv = DF.gradeVal;
+      if (gv === '未认证' ? !!p.grade : p.grade !== gv) return false;
+    }
+    if (DF.pro || DF.lvl) {
+      var hit = false;
+      for (var s = 0; s < p.tagIdx.length; s++) {
+        var ti = p.tagIdx[s];
+        if (dv('cat', TAGS[ti][9]) !== '认证') continue;
+        if (DF.pro && dv('kind', TAGS[ti][0]) !== DF.pro) continue;
+        if (DF.lvl && dv('lvl', TAGS[ti][1]) !== DF.lvl) continue;
+        hit = true; break;
+      }
+      if (!hit) return false;
+    }
+    return true;
   });
 }
-function renderDept() {
-  renderDeptFilter();
-  var members = DEPT_MEMBERS[DF.unit] || [];
-  if (!members.length) { $('#deptTable').innerHTML = '<div class="empty">该部门暂无人员</div>'; return; }
-  // 丰富人员信息：命中 D.people 者取等级/标签/专家
+/* 当前部门范围内的「认证」类专业候选（供专业下拉） */
+function deptCertKinds() {
+  var set = {};
+  deptScopeMembers().forEach(function (i) {
+    P(i).tagIdx.forEach(function (ti) {
+      if (dv('cat', TAGS[ti][9]) !== '认证') return;
+      var k = dv('kind', TAGS[ti][0]);
+      if (k) set[k] = 1;
+    });
+  });
+  return Object.keys(set).sort(function (a, b) { return a.localeCompare(b, 'zh'); });
+}
+function renderDeptFilter() {
+  $('#deptFilter').innerHTML = '<select id="dfDept">' +
+    '<option value=""' + (DF.unit ? '' : ' selected') + '>全部单位</option>' +
+    DEPT_UNITS.map(function (u) {
+      return '<option value="' + esc(u) + '"' + (u === DF.unit ? ' selected' : '') + '>' + esc(u) + '</option>';
+    }).join('') + '</select>';
+  buildDeptSearchBar();
+  $('#dfDept').addEventListener('change', function () {
+    DF.unit = this.value; DF.pro = ''; DF.lvl = ''; DF.special = ''; DF.gradeVal = ''; DF.page = 1;
+    buildDeptSearchBar();   // 换部门后刷新专业候选（重置专业/等级）
+    renderDept();
+  });
+}
+/* 人员检索栏：姓名/编码(MSS) + 专业名称 + 等级，置于名册表上方。
+   仅在初始化与切换部门时重建（此时输入框失焦可接受）；输入关键词/筛选只重绘表格，不重建本栏。 */
+function buildDeptSearchBar() {
+  $('#deptSearchBar').innerHTML =
+    '<input id="dfKw" class="input" type="text" placeholder="搜索姓名 / 编码(MSS)…" value="' + esc(DF.kw) + '">' +
+    '<select id="dfPro"><option value="">全部专业</option>' +
+      deptCertKinds().map(function (k) {
+        return '<option value="' + esc(k) + '"' + (k === DF.pro ? ' selected' : '') + '>' + esc(k) + '</option>';
+      }).join('') + '</select>' +
+    '<select id="dfLvl"><option value="">全部等级</option>' +
+      ['L1', 'L2', 'L3', 'L4'].map(function (l) {
+        return '<option value="' + l + '"' + (l === DF.lvl ? ' selected' : '') + '>' + l + '</option>';
+      }).join('') + '</select>' +
+    '<span class="f-label" id="dfCount"></span>';
+  $('#dfKw').addEventListener('input', function () { DF.kw = this.value; DF.page = 1; renderDept(); });
+  $('#dfPro').addEventListener('change', function () { DF.pro = this.value; DF.page = 1; renderDept(); });
+  $('#dfLvl').addEventListener('change', function () { DF.lvl = this.value; DF.page = 1; renderDept(); });
+}
+/* KPI 与两张图表：始终按「当前部门全量人员」统计，不随下方检索变化 */
+function renderDeptHead(members) {
   var rows = members.map(function (i) { return { p: P(i), found: true }; });
   var certCount = rows.filter(function (r) { return !!r.p.grade; }).length;
   var l3Count = rows.filter(function (r) { return r.p.gradeLvl >= 3; }).length;
   var expCount = rows.filter(function (r) { return !!r.p.expert; }).length;
   var expBad = rows.filter(function (r) { return r.p.expert && !l3ok(r.p); });
-  var gc = {}, kc = {};
+  var gc = {}, kcPerson = {};
   rows.forEach(function (r) {
     var g = r.p.grade || '未认证'; gc[g] = (gc[g] || 0) + 1;
-    r.p.tagIdx.forEach(function (ti) { var k = dv('kind', TAGS[ti][0]); if (k) kc[k] = (kc[k] || 0) + 1; });
+    var seenKind = {};
+    r.p.tagIdx.forEach(function (ti) {
+      // 仅统计「认证」类标签，排除 理论 / 实战 / 实操 / 通用能力
+      if (dv('cat', TAGS[ti][9]) !== '认证') return;
+      var k = dv('kind', TAGS[ti][0]);
+      if (!k) return;
+      if (!seenKind[k]) { seenKind[k] = 1; kcPerson[k] = (kcPerson[k] || 0) + 1; }
+    });
   });
   var gcRows = Object.keys(gc).map(function (k) {
     var m = /L([1-4])/.exec(k);
     return { name: k, v: gc[k], lv: m ? +m[1] : 0 };
   }).sort(function (a, b) { return a.lv - b.lv; });
-  var kcRows = topObj(kc, 10);
-
-  var pages = Math.max(1, Math.ceil(members.length / DF_SIZE));
-  if (DF.page > pages) DF.page = pages;
-  var sliceRows = rows.slice((DF.page - 1) * DF_SIZE, DF.page * DF_SIZE);
-  var mask = $('#deptMask').checked;
-
-  $('#dfCount').textContent = '共 ' + members.length + ' 人（认证明细口径）';
+  var kcRows = topObj(kcPerson, 10);
+  var scopeTxt = DF.unit ? '部门内' : '全部单位';
 
   var head = '<div style="padding:18px">' +
     '<div class="info-grid">' +
-      ic('部门人数', members.length + ' 人', '认证明细部门口径', '') +
-      ic('已认证人数', certCount + ' 人', members.length ? (certCount / members.length * 100).toFixed(1) + '% 覆盖率' : '', 'sm') +
-      ic('L3 及以上', l3Count + ' 人', '', '') +
-      ic('在聘专家', expCount + ' 人', expBad.length ? (expBad.length + ' 人缺 L3') : (expCount ? '全部达标' : ''), expBad.length ? '' : 'sm') +
+      ic(DF.unit ? '部门人数' : '人员总数', members.length + ' 人', '认证明细部门口径 · 点击查看全部', '', 'all', false) +
+      ic('已认证人数', certCount + ' 人', members.length ? (certCount / members.length * 100).toFixed(1) + '% 覆盖率 · 点击查看明细' : '', 'sm', 'cert', DF.special === 'cert') +
+      ic('L3 及以上', l3Count + ' 人', '点击查看明细', '', 'l3plus', DF.special === 'l3plus') +
+      ic('在聘专家', expCount + ' 人', (expBad.length ? expBad.length + ' 人缺 L3' : (expCount ? '全部达标' : '')) + (expCount ? ' · 点击查看明细' : ''), expBad.length ? '' : 'sm', 'exp', DF.special === 'exp') +
     '</div>' +
     (expBad.length ? '<div class="notice-warn"><svg viewBox="0 0 20 20"><path d="M10 2 1 18h18zm-1 6v5h2V8zm0 6v2h2v-2z" fill="currentColor"/></svg>' +
-      '<span>强提醒：本部门有 <strong>' + expBad.length + '</strong> 名专家尚未取得 L3 认证：' +
+      '<span>强提醒：' + (DF.unit ? '本部门' : '当前范围') + '有 <strong>' + expBad.length + '</strong> 名专家尚未取得 L3 认证：' +
       expBad.slice(0, 5).map(function (r) {
         var p = r.p;
         return esc(p.name) + (p.expert && p.expert.level ? '（' + esc(p.expert.level) + '）' : '');
@@ -1189,19 +1274,92 @@ function renderDept() {
       (expBad.length > 5 ? ' 等 ' + expBad.length + ' 人' : '') +
       '，请在专家看板中优先跟进。</span></div>' : '') +
     '<div class="grid-2" style="margin-top:16px">' +
-      '<div><div class="ts-title" style="margin-bottom:10px">工程师等级分布（部门内）</div>' +
-        (gcRows.length ? barChart(gcRows, { cls: function (r) { return BAR_CLS[r.lv] || ''; } }) : '<div class="empty">无数据</div>') + '</div>' +
-      '<div><div class="ts-title" style="margin-bottom:10px">三级标签种类 TOP10（部门内）</div>' +
-        (kcRows.length ? barChart(kcRows, { cls: function () { return 'g2'; }, val: function (r) { return r.v + ' 条'; } }) : '<div class="empty">无数据</div>') + '</div>' +
+      '<div><div class="ts-title" style="margin-bottom:10px">工程师等级分布（' + scopeTxt + '）<span class="chart-hint">· 点击条目查看明细</span></div>' +
+        (gcRows.length ? barChart(gcRows, {
+          cls: function (r) { return BAR_CLS[r.lv] || ''; },
+          click: 'grade',
+          active: function (r) { return DF.special === 'grade' && DF.gradeVal === r.name; }
+        }) : '<div class="empty">无数据</div>') + '</div>' +
+      '<div><div class="ts-title" style="margin-bottom:10px">已认证专业人数 TOP10（' + scopeTxt + '）<span class="chart-hint">· 点击条目查看明细</span></div>' +
+        (kcRows.length ? barChart(kcRows, {
+          cls: function () { return 'g2'; },
+          val: function (r) { return r.v + ' 人'; },
+          click: 'pro',
+          active: function (r) { return DF.pro === r.name; }
+        }) : '<div class="empty">无数据</div>') + '</div>' +
     '</div></div>';
+
+  $('#deptHead').innerHTML = head;
+  DEPT_HEAD_ROWS = { grade: gcRows, pro: kcRows };
+}
+
+/* 汇总下钻：点击 KPI 卡 / 图表条 → 名册表按该口径过滤（再点同项取消）。
+   下钻是「聚焦」语义：清除其他检索条件，只保留本次点击的口径，保证名册数 = 汇总数。 */
+function deptDrill(type, name) {
+  if (type === 'all') {                       // 点「部门人数」= 清空全部筛选
+    DF.kw = ''; DF.pro = ''; DF.lvl = ''; DF.special = ''; DF.gradeVal = '';
+  } else if (type === 'grade') {              // 等级分布条目
+    if (DF.special === 'grade' && DF.gradeVal === name) { DF.special = ''; DF.gradeVal = ''; }
+    else { DF.kw = ''; DF.pro = ''; DF.lvl = ''; DF.special = 'grade'; DF.gradeVal = name; }
+  } else if (type === 'pro') {                // TOP10 专业条目（与专业下拉联动）
+    if (DF.pro === name) { DF.pro = ''; }
+    else { DF.kw = ''; DF.lvl = ''; DF.special = ''; DF.gradeVal = ''; DF.pro = name; }
+  } else {                                    // cert / l3plus / exp KPI 卡
+    if (DF.special === type) { DF.special = ''; DF.gradeVal = ''; }
+    else { DF.kw = ''; DF.pro = ''; DF.lvl = ''; DF.gradeVal = ''; DF.special = type; }
+  }
+  DF.page = 1;
+  syncDeptSearchBar();
+  renderDept();
+}
+/* 同步检索栏控件显示（不重建，避免丢焦点；下钻由点击触发，本就无输入焦点） */
+function syncDeptSearchBar() {
+  var kw = $('#dfKw'), pro = $('#dfPro'), lvl = $('#dfLvl');
+  if (kw) kw.value = DF.kw;
+  if (pro) pro.value = DF.pro;
+  if (lvl) lvl.value = DF.lvl;
+}
+/* 事件委托：绑定一次，KPI 卡与图表条共用 */
+function bindDeptHeadClick() {
+  $('#deptHead').addEventListener('click', function (e) {
+    var cell = e.target.closest('[data-ickey]');
+    if (cell) { deptDrill(cell.dataset.ickey, null); return; }
+    var bar = e.target.closest('[data-bclick]');
+    if (bar) {
+      var list = DEPT_HEAD_ROWS[bar.dataset.bclick] || [];
+      var row = list[+bar.dataset.bidx];
+      if (row) deptDrill(bar.dataset.bclick, row.name);
+    }
+  });
+}
+
+function renderDept() {
+  var allMembers = deptScopeMembers();
+  var hasFilter = !!((DF.kw || '').trim() || DF.pro || DF.lvl || DF.special);
+  var members = deptSearchFilter(allMembers);
+  renderDeptHead(allMembers);   // KPI/图表固定按部门全量，检索只影响名册表
+  var spLbl = DF.special === 'grade' ? ('等级：' + DF.gradeVal) : (DF_SPECIAL_LABEL[DF.special] || '');
+  $('#dfCount').textContent = hasFilter
+    ? '匹配 ' + members.length + ' / ' + allMembers.length + ' 人' + (spLbl ? ' · ' + spLbl : '')
+    : '共 ' + allMembers.length + ' 人（认证明细口径）';
+  if (!members.length) {
+    $('#deptTable').innerHTML = '<div class="empty">' + (hasFilter ? '没有符合条件的人员' : '该部门暂无人员') + '</div>';
+    return;
+  }
+  // pi 保留 people 主档下标，供点击弹窗
+  var rows = members.map(function (i) { return { p: P(i), pi: i, found: true }; });
+
+  var pages = Math.max(1, Math.ceil(members.length / DF_SIZE));
+  if (DF.page > pages) DF.page = pages;
+  var sliceRows = rows.slice((DF.page - 1) * DF_SIZE, DF.page * DF_SIZE);
 
   var table = '<div class="table-wrap"><table><thead><tr>' +
     '<th>姓名</th><th>所属部门</th><th>云网工程师等级</th><th>最高标签等级</th>' +
     '<th>标签数</th><th>认证开始</th><th>认证结束</th><th>专家</th></tr></thead><tbody>' +
     sliceRows.map(function (r) {
       var p = r.p;
-      return '<tr' + (r.found && p.expert && !l3ok(p) ? ' class="row-danger"' : '') + '>' +
-        '<td class="nowrap">' + esc(mask ? maskName(p.name) : p.name) + '</td>' +
+      return '<tr data-pi="' + r.pi + '" title="点击查看认证详情"' + (r.found && p.expert && !l3ok(p) ? ' class="row-danger"' : '') + '>' +
+        '<td class="nowrap">' + esc(p.name) + '</td>' +
         '<td>' + esc(p.dept) + '</td>' +
         '<td class="nowrap">' + (r.found && p.grade ? '<span class="badge ' + (LVL_CLS['L' + p.gradeLvl] || 'b-gray') + '">' + esc(p.grade) + '</span>' : '<span class="badge b-gray">未认证</span>') + '</td>' +
         '<td class="nowrap">' + (r.found && p.maxTagLvl ? '<span class="badge ' + LVL_CLS['L' + p.maxTagLvl] + '">' + LVNAME[p.maxTagLvl] + '</span>' : '<span class="badge b-gray">无</span>') + '</td>' +
@@ -1214,12 +1372,15 @@ function renderDept() {
     }).join('') + '</tbody></table></div>' +
     '<div id="dfPager"></div>';
 
-  $('#deptTable').innerHTML = head + table;
+  $('#deptTable').innerHTML = table;
   pager('#dfPager', members.length, DF_SIZE, DF.page, function (n) { DF.page = n; renderDept(); });
+  // 点击行弹出该人员认证详情（与人才池「详情」弹窗一致）
+  $$('#deptTable tr[data-pi]').forEach(function (tr) {
+    tr.addEventListener('click', function () { openDetail(+tr.dataset.pi); });
+  });
 }
-$('#deptMask').addEventListener('change', function () { renderDept(); });
 $('#deptExport').addEventListener('click', function () {
-  var members = DEPT_MEMBERS[DF.unit] || [];
+  var members = deptScopeMembers();
   var rows = members.map(function (i) {
     var p = P(i);
     return [p.name, p.code, p.dept,
@@ -1228,7 +1389,7 @@ $('#deptExport').addEventListener('click', function () {
             p.tagIdx.length, p.start, p.end, p.status,
             p.expert ? p.expert.level : '', p.expert ? (l3ok(p) ? '达标' : '缺L3') : ''];
   });
-  downloadCSV('部门人才名册_' + DF.unit + '_' + stamp() + '.csv',
+  downloadCSV('部门人才名册_' + (DF.unit || '全部单位') + '_' + stamp() + '.csv',
     ['姓名', '人力编码', '部门', '工程师等级', '最高标签等级', '最高等级', '标签数',
      '认证开始', '认证结束', '状态', '专家层次', '专家L3状态'], rows);
 });
@@ -2067,9 +2228,19 @@ function matchReqHtml(r) {
   }
   return '<span class="m-req any">任一 L2 及以上认证</span>';
 }
+/* 「云网工程师L1~L4」是岗位等级（职级序列），不是认证证书；人岗匹配页只展示项目认证，故过滤掉。
+   注意：仅过滤展示，L2 匹配判定仍依赖该等级（持有云网工程师L2 及以上即算 L2 人岗匹配）。 */
+var GRADE_ONLY_RE = /^云网工程师L[0-9]+$/;
+function splitObtained(r) {
+  var all = (r.obtained || []).filter(function (c) { return c && !GRADE_ONLY_RE.test(c); });
+  var grades = (r.obtained || []).filter(function (c) { return c && GRADE_ONLY_RE.test(c); });
+  return { certs: all, grades: grades };
+}
 function matchObtainedHtml(r) {
-  if (!r.obtained || !r.obtained.length) return '<span class="m-none">无认证记录</span>';
-  return r.obtained.map(function (c) { return '<span class="m-cert">' + esc(c) + '</span>'; }).join('');
+  // 只展示项目认证；「云网工程师Lx」岗位等级不在此列显示（仍参与 L2 匹配计算）
+  var sp = splitObtained(r);
+  if (!sp.certs.length) return '<span class="m-none">—</span>';
+  return sp.certs.map(function (c) { return '<span class="m-cert">' + esc(c) + '</span>'; }).join('');
 }
 
 /* 人岗匹配通报口径：蛇口通讯/高新区信息网（8月13日通报，用户无其明细认证数据） */
@@ -2114,80 +2285,90 @@ function renderMatchDash() {
         '<div class="md-v">' + fmt(t.l2matched) + '<small>/' + fmt(t.l2total) + '</small></div>' +
         '<div class="md-bar"><div class="md-fill green" style="width:' + (t.l2rate * 100).toFixed(1) + '%"></div></div>' +
         '<div class="md-rate">匹配率 ' + (t.l2rate * 100).toFixed(1) + '% ｜ 缺口 ' + fmt(l2gap) + ' 人</div></div>' +
-      '<div class="md-note">基准参考（2026-08-13 公司通报）：L1 752/867、L2 403/643。' +
-        '蛇口通讯、高新区信息网按通报数据修正；其余按平台最新认证快照，缺口用于指导补证。</div>' +
     '</div>';
 }
 
-/* 首页按三级单位-单位汇总表 */
-function parentUnit(unit) {
-  if (unit === '深圳市蛇口通讯有限公司' || unit === '深圳高新区信息网有限公司') return unit;
-  return '深圳分公司';
-}
-function matchUnitAgg() {
-  // 1. 按平台数据聚合到各单位
-  var units = {};
+/* 人岗匹配：按部门汇总 + L1 匹配率排名
+   规则：按 L1 人岗匹配率从高到低排名；L1 达 100% 的标绿（超过三个则全部标绿）；排名末三位标红；
+        无 L1 目标人数的部门与通报数据行不参与排名，列在末尾且不着色。 */
+var RANK_BOTTOM = 3;      // 末三名标红
+function matchDeptAgg() {
+  var depts = {};
   ['l1', 'l2'].forEach(function (cat) {
     (M[cat].rows || []).forEach(function (r) {
-      var u = r.unit;
-      if (!units[u]) units[u] = { unit: u, l1t: 0, l1m: 0, l2t: 0, l2m: 0 };
-      if (cat === 'l1') { units[u].l1t++; if (r.match) units[u].l1m++; }
-      else { units[u].l2t++; if (r.match) units[u].l2m++; }
+      var d = (r.dept || '').trim() || '未匹配部门';
+      if (!depts[d]) depts[d] = { dept: d, l1t: 0, l1m: 0, l2t: 0, l2m: 0 };
+      if (cat === 'l1') { depts[d].l1t++; if (r.match) depts[d].l1m++; }
+      else { depts[d].l2t++; if (r.match) depts[d].l2m++; }
     });
   });
-  // 2. 通报数据覆盖（用户无这两个单位的明细认证数据）
-  Object.keys(REPORTED_UNITS).forEach(function (u) {
+  var all = Object.keys(depts).filter(function (d) {
+    var x = depts[d];
+    return x.l1t || x.l2t;          // 目标人数全为 0 的空行不显示
+  }).map(function (d) { return depts[d]; });
+  // 参与排名：有 L1 目标人数的部门，按 L1 匹配率降序（相同则目标人数多的在前，再按部门名）
+  var ranked = all.filter(function (x) { return x.l1t > 0; }).sort(function (a, b) {
+    var ra = a.l1m / a.l1t, rb = b.l1m / b.l1t;
+    if (ra !== rb) return rb - ra;
+    if (a.l1t !== b.l1t) return b.l1t - a.l1t;
+    return (a.dept || '').localeCompare(b.dept || '');
+  });
+  var n = ranked.length;
+  ranked.forEach(function (x, i) {
+    x.rank = i + 1;
+    x.l1rate = x.l1m / x.l1t * 100;
+    x.cls = x.l1rate >= 100 ? 'ok' : (i >= n - RANK_BOTTOM ? 'low' : 'mid');
+  });
+  // 不参与排名：无 L1 目标人数的部门
+  var unranked = all.filter(function (x) { return x.l1t === 0; }).sort(function (a, b) {
+    return (a.dept || '').localeCompare(b.dept || '');
+  }).map(function (x) {
+    x.rank = null; x.l1rate = null; x.cls = 'na';
+    x.tag = 'L2 名单独有';      // 仅出现在 L2 目标清单、L1 名单没有该部门
+    return x;
+  });
+  // 通报补录：蛇口通讯/高新区信息网只有单位级总数、没有部门明细 → 单独列在表末并标注
+  var reported = Object.keys(REPORTED_UNITS).map(function (u) {
     var rep = REPORTED_UNITS[u];
-    if (!units[u]) units[u] = { unit: u, l1t: 0, l1m: 0, l2t: 0, l2m: 0 };
-    units[u].l1m = rep.l1m; units[u].l1t = rep.l1t;
-    units[u].l2m = rep.l2m; units[u].l2t = rep.l2t;
+    return { dept: u + '（通报数据）', l1m: rep.l1m, l1t: rep.l1t, l2m: rep.l2m, l2t: rep.l2t,
+             reported: true, rank: null, l1rate: null, cls: 'na' };
   });
-  // 3. 按三级单位分组（不含小组合计行）
-  var groups = {};
-  Object.keys(units).sort().forEach(function (u) {
-    var pu = parentUnit(u);
-    if (!groups[pu]) groups[pu] = [];
-    groups[pu].push(units[u]);
+  var grand = { dept: '总计', l1t: 0, l1m: 0, l2t: 0, l2m: 0 };
+  ranked.concat(unranked, reported).forEach(function (x) {
+    grand.l1t += x.l1t; grand.l1m += x.l1m; grand.l2t += x.l2t; grand.l2m += x.l2m;
   });
-  var list = [];
-  Object.keys(groups).sort().forEach(function (pu) {
-    list.push({ parent: pu, units: groups[pu].sort(function (a, b) { return a.unit.localeCompare(b.unit); }) });
-  });
-  // 4. 总计
-  var grand = { unit: '总计', l1t: 0, l1m: 0, l2t: 0, l2m: 0 };
-  Object.keys(units).forEach(function (u) {
-    grand.l1t += units[u].l1t; grand.l1m += units[u].l1m;
-    grand.l2t += units[u].l2t; grand.l2m += units[u].l2m;
-  });
-  return { groups: list, grand: grand };
+  return { depts: ranked, unranked: unranked, reported: reported, grand: grand };
 }
-/* 首页 / 人岗匹配页共用的「按单位」汇总表（已去除冗余的「三级单位」列，改以分组小标题呈现） */
-function matchUnitTableHtml() {
-  var data = matchUnitAgg();
-  var body = '';
-  data.groups.forEach(function (g) {
-    body += '<tr class="mut-group"><td colspan="7">' + esc(g.parent) + '</td></tr>';
-    g.units.forEach(function (u) {
-      var l1rate = u.l1t ? (u.l1m / u.l1t * 100) : 0;
-      var l2rate = u.l2t ? (u.l2m / u.l2t * 100) : 0;
-      var l1RateCls = l1rate >= 100 ? 'ok' : 'low';
-      var l2RateCls = l2rate >= 55 ? 'ok' : 'low';
-      var l2RateTxt = u.l2t ? l2rate.toFixed(1) + '%' : '—';
-      body += '<tr>' +
-        '<td class="mut-unit">' + esc(u.unit) + '</td>' +
-        '<td>' + fmt(u.l1m) + '</td>' +
-        '<td>' + fmt(u.l1t) + '</td>' +
-        '<td class="mut-rate ' + l1RateCls + '">' + (u.l1t ? l1rate.toFixed(1) + '%' : '—') + '</td>' +
-        '<td>' + fmt(u.l2m) + '</td>' +
-        '<td>' + fmt(u.l2t) + '</td>' +
-        '<td class="mut-rate ' + l2RateCls + '">' + l2RateTxt + '</td>' +
-        '</tr>';
-    });
-  });
+function matchRateRowHtml(x) {
+  var l2rate = x.l2t ? (x.l2m / x.l2t * 100) : 0;
+  var l2RateCls = l2rate >= 55 ? 'ok' : 'low';
+  var name = x.reported
+    ? '<span class="mut-dept-plain">' + esc(x.dept) + '</span>'
+    : '<button class="btn-link mut-dept" data-goto="match" data-dept="' + esc(x.dept) + '" title="点击查看该部门明细">' + esc(x.dept) + '</button>';
+  if (x.tag) name += '<div class="mut-tag">' + esc(x.tag) + '</div>';
+  return '<tr' + (x.cls === 'ok' ? ' class="mut-top"' : (x.cls === 'low' ? ' class="mut-bottom"' : '')) + '>' +
+    '<td class="mut-rank">' + (x.rank || '—') + '</td>' +
+    '<td class="mut-unit">' + name + '</td>' +
+    '<td>' + fmt(x.l1m) + '</td>' +
+    '<td>' + fmt(x.l1t) + '</td>' +
+    '<td class="mut-rate ' + x.cls + '">' + (x.l1rate === null ? '—' : x.l1rate.toFixed(1) + '%') + '</td>' +
+    '<td>' + fmt(x.l2m) + '</td>' +
+    '<td>' + fmt(x.l2t) + '</td>' +
+    '<td class="mut-rate ' + l2RateCls + '">' + (x.l2t ? l2rate.toFixed(1) + '%' : '—') + '</td>' +
+    '</tr>';
+}
+/* 首页 / 人岗匹配页共用的「按部门」汇总表
+   showDetail=true 才输出「查看明细 →」（人岗匹配页顶部已在本页，按钮无效故不输出） */
+function matchDeptTableHtml(showDetail) {
+  var data = matchDeptAgg();
+  var body = data.depts.map(matchRateRowHtml).join('')
+          + data.unranked.map(matchRateRowHtml).join('')
+          + data.reported.map(matchRateRowHtml).join('');
   var g = data.grand;
   var gl1 = g.l1t ? (g.l1m / g.l1t * 100) : 0;
   var gl2 = g.l2t ? (g.l2m / g.l2t * 100) : 0;
   body += '<tr class="mut-grand">' +
+    '<td></td>' +
     '<td>总计</td>' +
     '<td>' + fmt(g.l1m) + '</td>' +
     '<td>' + fmt(g.l1t) + '</td>' +
@@ -2197,19 +2378,25 @@ function matchUnitTableHtml() {
     '<td class="mut-rate ' + (gl2 >= 55 ? 'ok' : 'low') + '">' + (g.l2t ? gl2.toFixed(1) + '%' : '—') + '</td>' +
     '</tr>';
 
-  return '<div class="panel-head"><h2>人岗匹配情况（按单位）</h2>' +
+  return '<div class="panel-head"><h2>人岗匹配情况（按部门）</h2>' +
     '<span class="panel-tag">目标：L1 100% · L2 55%</span>' +
-    '<button class="btn-link" data-goto="match">查看明细 →</button></div>' +
+    (showDetail ? '<button class="btn-link" data-goto="match">查看明细 →</button>' : '') + '</div>' +
     '<div class="panel-body no-pad">' +
       '<div class="table-wrap mut-wrap">' +
         '<table class="mut-table"><thead><tr>' +
-          '<th>单位</th><th>L1人数</th><th>L1目标人数</th>' +
+          '<th>排名</th><th>部门</th><th>L1人数</th><th>L1目标人数</th>' +
           '<th>L1人岗匹配率</th><th>L2人数</th><th>L2目标人数</th>' +
           '<th>L2人岗匹配率</th>' +
         '</tr></thead><tbody>' + body + '</tbody></table>' +
-      '</div></div>';
+      '</div>' +
+      '<div class="mut-note">按「任职部门名称」统计，默认按 L1 人岗匹配率从高到低排名；' +
+      '<b class="ok-txt">绿色</b>为 L1 匹配率已达 100% 的部门，<b class="low-txt">红色</b>为排名末三位；' +
+      '部门名可点击查看该部门人岗匹配明细。' +
+      '深圳市蛇口通讯有限公司、深圳高新区信息网有限公司仅有单位级通报数据、无部门明细，单独列于表末且不参与排名。' +
+      '标「L2 名单独有」的部门只出现在 L2 目标清单、L1 名单中没有，故无 L1 目标与排名。</div>' +
+    '</div>';
 }
-function renderMatchUnitTable() { $('#matchUnitTable').innerHTML = matchUnitTableHtml(); }
+function renderMatchUnitTable() { $('#matchUnitTable').innerHTML = matchDeptTableHtml(true); }
 
 
 /* 人岗匹配看板 */
@@ -2250,7 +2437,8 @@ function renderMatch() {
   $('#mfKw').addEventListener('input', function () { MF.kw = this.value; MF.page = 1; renderMatchTable(); });
   $('#matchExport').addEventListener('click', exportMatch);
 
-  $('#matchUnitTableTop').innerHTML = matchUnitTableHtml();
+  // 人岗匹配页顶部：不再输出「查看明细 →」（本页即明细，按钮无效）
+  $('#matchUnitTableTop').innerHTML = matchDeptTableHtml(false);
   renderMatchTable();
 }
 
@@ -2269,14 +2457,14 @@ function renderMatchTable() {
       : (r.match ? '<span class="badge b-ok">已匹配</span>' : '<span class="badge b-bad">未匹配</span>');
     return '<tr data-mi="' + abs + '">' +
       '<td class="m-name">' + esc(r.name) + '<div class="m-code">' + esc(r.code) + '</div></td>' +
-      '<td>' + esc(r.unit) + '<div class="m-sub">' + esc(r.dept) + '</div></td>' +
+      '<td>' + esc(r.dept || '—') + '</td>' +
       '<td>' + esc(r.post || r.base || '—') + '</td>' +
       '<td class="m-reqs">' + matchReqHtml(r) + '</td>' +
       '<td class="m-obt">' + matchObtainedHtml(r) + '</td>' +
       '<td>' + st + '</td></tr>';
   }).join('');
   $('#matchTable').innerHTML = '<table><thead><tr>' +
-    '<th>姓名</th><th>单位 / 部门</th><th>岗位</th><th>所需认证</th><th>已获认证</th><th>状态</th>' +
+    '<th>姓名</th><th>部门</th><th>岗位</th><th>所需认证</th><th>已获认证</th><th>状态</th>' +
     '</tr></thead><tbody>' + body + '</tbody></table>';
   $$('#matchTable tr[data-mi]').forEach(function (tr) {
     tr.addEventListener('click', function () { openMatchDetail(+tr.dataset.mi); });
@@ -2351,6 +2539,8 @@ function init() {
   renderNotices();
   renderExpert();
   renderExpiryFilter(); renderExpiryTable();
+  renderDeptFilter();
+  bindDeptHeadClick();
   renderDept();
   renderWork();
   renderExamFilters(); renderExamSummary(); renderExam();
