@@ -202,6 +202,9 @@ td.nowrap,.nowrap{white-space:nowrap}
 }
 .filter-bar select:focus,.filter-bar input:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(0,108,184,.1)}
 .f-label{font-size:12px;color:var(--tx-3)}
+/* 专家 L3 看板：筛选控件与姓名检索栏合并到同一行（检索栏独立构建一次，输入不丢焦点） */
+.expert-filter-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:13px 18px;border-bottom:1px solid var(--line-2);background:#FCFDFE}
+.expert-filter-row > .filter-bar{border-bottom:none;background:transparent;padding:0;flex-wrap:wrap;align-items:center}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
 .seg button{border:none;background:#fff;padding:7px 13px;font-size:12.5px;cursor:pointer;color:var(--tx-2);
   border-right:1px solid var(--line);transition:.15s}
@@ -638,6 +641,14 @@ td.nowrap,.nowrap{white-space:nowrap}
 .m-obt-wrap{display:flex;flex-wrap:wrap;gap:0}
 .m-rule{font-size:13px;color:var(--tx-2);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .m-rule b{color:var(--brand)}
+/* 人岗匹配：持证构成（按所需专业的 认证L/理论/实操/实战 组件） */
+.m-comp-col{max-width:300px}
+.m-comp-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:3px 0;font-size:11.5px;line-height:1.5}
+.m-comp-row:first-child{margin-top:0}
+.m-comp-req{font-weight:600;color:var(--tx-2);margin-right:4px;white-space:nowrap}
+.m-comp{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11px;white-space:nowrap;font-weight:500}
+.m-comp.yes{background:var(--ok-lt);color:var(--ok);font-weight:600}
+.m-comp.no{background:transparent;color:#AAB3BD}
 tbody tr[data-mi]{cursor:pointer}
 
 /* 首页「人岗匹配情况（按单位）」汇总表 */
