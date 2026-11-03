@@ -443,12 +443,14 @@
   // 远程停用 / 版本门槛（kill switch）：status.json 与数据分离，状态走 @main 实时生效。
   //   enabled===false          → 平台已停用（全局临时关停）
   //   BUILD_VERSION < minVersion → 该版本已停用，必须用新文件
-  // 状态获取失败则降级放行，避免 CDN 抖动误伤。
+  // 安全策略：状态读取失败（离线 / 跨域被拦 / CDN 异常）一律拦截（fail-closed），
+  // 确保"停用"对发出去的单文件真正拦得住（双击 file:// 打开时浏览器可能拦截跨域 fetch）。
+  // 仅"环境无 fetch"的老浏览器保留内联快照兜底（离线可用）。
   function checkStatus() {
     return new Promise(function (resolve) {
       if (typeof fetch !== 'function') { resolve(true); return; }
       fetch(BASE + 'status.json?ts=' + Date.now(), { cache: 'no-store' })
-        .then(function (r) { return r.ok ? r.json() : { enabled: true }; })
+        .then(function (r) { if (!r.ok) throw new Error('status HTTP ' + r.status); return r.json(); })
         .then(function (st) {
           if (st.enabled === false) {
             block('平台已停用', st.message || '本平台已暂停使用，新版本发布后将自动恢复，请稍候。');
@@ -461,7 +463,10 @@
           }
           resolve(true);
         })
-        .catch(function () { resolve(true); });
+        .catch(function () {
+          block('平台已暂停访问', '无法连接服务确认平台状态，已暂停打开。请联网后重试，或联系管理员。');
+          resolve(false);
+        });
     });
   }
   function boot() {
