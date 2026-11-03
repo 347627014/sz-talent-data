@@ -2775,6 +2775,10 @@ function exportMatch() {
 
 /* ============================ 初始化 ============================ */
 function init() {
+  // 防御性移除启动遮罩：在线单文件版通过 textContent 注入 app.js 时，
+  // 动态脚本的 onload 不一定触发，这里在应用初始化时兜底清除。
+  var _boot = document.getElementById('bootOverlay');
+  if (_boot) _boot.remove();
   var m = D.meta;
   $('#sideMeta').innerHTML =
     '认证 ' + fmt(CERTED.length) + ' 人 · 专家 ' + fmt(EXPERTS.length) + ' 人<br>' +
