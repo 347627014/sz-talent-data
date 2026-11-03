@@ -379,7 +379,9 @@
 <!-- 在线数据版引导：运行时从 jsDelivr 拉最新数据；失败回退本地 assets/data.js / match.js -->
 <script>
 (function () {
-  var BASE = "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@latest/";
+  // 数据固定从 @main 分支读取：分支 ref 不受 jsDelivr @latest 的 semver 解析影响，最稳定；
+  // 发布时仍打 Release（semver 标签）以便固定版本分发。
+  var BASE = "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@main/";
   function ensureOverlay() {
     var o = document.getElementById('bootOverlay');
     if (o) return o;
