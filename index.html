@@ -391,7 +391,7 @@
       'background:rgba(244,248,252,.96);color:#0D2B54;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif';
     o.innerHTML = '<div style="text-align:center;max-width:80%">' +
       '<div style="font-size:15px;font-weight:700;margin-bottom:8px">网运线人才管理平台</div>' +
-      '<div id="bootMsg" style="color:#3a5a78">正在从在线获取最新数据…</div>' +
+      '<div id="bootMsg" style="color:#3a5a78">正在读取数据…</div>' +
       '<button id="bootRetry" style="display:none;margin-top:14px;padding:8px 18px;border:0;border-radius:8px;' +
       'background:#006CB8;color:#fff;cursor:pointer;font-size:13px">重试</button></div>';
     document.body.appendChild(o);
@@ -467,7 +467,7 @@
   function boot() {
     if (typeof fetch !== 'function') { loadLocal(); return; }   // 环境无 fetch（jsdom/老浏览器）→ 直接用本地数据
     ensureOverlay();
-    setMsg('正在从在线获取最新数据…');
+    setMsg('正在读取数据…');
     checkStatus().then(function (ok) {
       if (!ok) return; // 已被停用 / 版本过期拦截，不再加载应用
       var ts = '?ts=' + Date.now();
