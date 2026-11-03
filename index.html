@@ -434,22 +434,55 @@
       m.onerror = function () { setMsg('本地数据也不存在，无法加载平台。'); showRetry(); };
     }
   }
+  function block(title, msg) {
+    var o = ensureOverlay();
+    o.innerHTML = '<div style="text-align:center;max-width:84%">' +
+      '<div style="font-size:19px;font-weight:700;margin-bottom:12px;color:#D62728">' + title + '</div>' +
+      '<div style="color:#3a5a78;font-size:13px">' + (msg || '') + '</div></div>';
+  }
+  // 远程停用 / 版本门槛（kill switch）：status.json 与数据分离，状态走 @main 实时生效。
+  //   enabled===false          → 平台已停用（全局临时关停）
+  //   BUILD_VERSION < minVersion → 该版本已停用，必须用新文件
+  // 状态获取失败则降级放行，避免 CDN 抖动误伤。
+  function checkStatus() {
+    return new Promise(function (resolve) {
+      if (typeof fetch !== 'function') { resolve(true); return; }
+      fetch(BASE + 'status.json?ts=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : { enabled: true }; })
+        .then(function (st) {
+          if (st.enabled === false) {
+            block('平台已停用', st.message || '本平台已暂停使用，新版本发布后将自动恢复，请稍候。');
+            resolve(false); return;
+          }
+          var bv = (typeof BUILD_VERSION !== 'undefined' && BUILD_VERSION) ? String(BUILD_VERSION) : '';
+          if (bv && st.minVersion && bv < String(st.minVersion)) {
+            block('该版本已停用，请使用最新版', st.message);
+            resolve(false); return;
+          }
+          resolve(true);
+        })
+        .catch(function () { resolve(true); });
+    });
+  }
   function boot() {
     if (typeof fetch !== 'function') { loadLocal(); return; }   // 环境无 fetch（jsdom/老浏览器）→ 直接用本地数据
     ensureOverlay();
     setMsg('正在从在线获取最新数据…');
-    var ts = '?ts=' + Date.now();
-    function getJSON(url) {
-      return fetch(url, { cache: 'no-store' }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
-      });
-    }
-    Promise.all([getJSON(BASE + 'data.json' + ts), getJSON(BASE + 'match.json' + ts)])
-      .then(function (res) {
-        window.__DATA__ = res[0]; window.__MATCH__ = res[1];
-        loadApp(true); mountStatus(res[0], true);
-      })
-      .catch(function () { loadLocal(); });
+    checkStatus().then(function (ok) {
+      if (!ok) return; // 已被停用 / 版本过期拦截，不再加载应用
+      var ts = '?ts=' + Date.now();
+      function getJSON(url) {
+        return fetch(url, { cache: 'no-store' }).then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
+        });
+      }
+      Promise.all([getJSON(BASE + 'data.json' + ts), getJSON(BASE + 'match.json' + ts)])
+        .then(function (res) {
+          window.__DATA__ = res[0]; window.__MATCH__ = res[1];
+          loadApp(true); mountStatus(res[0], true);
+        })
+        .catch(function () { loadLocal(); });
+    });
   }
   boot();
 })();
