@@ -381,7 +381,32 @@
 (function () {
   // 数据固定从 @main 分支读取：分支 ref 不受 jsDelivr @latest 的 semver 解析影响，最稳定；
   // 发布时仍打 Release（semver 标签）以便固定版本分发。
+  // 多 CDN 域名容灾：个别 jsDelivr 边缘节点会出现单文件缓存僵死（如 status.json 长期不刷新、
+  // 停留在旧版），故状态/数据依次优先走 fastly → gcore → cdn，任一新鲜源返回即采用，
+  // 避免被单一陈旧节点误导导致"已停用却仍打开"。
   var BASE = "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@main/";
+  // 数据多域名容灾（cdn 对数据可用）；状态只走 fastly/gcore 两个更可靠的节点，
+  // 刻意跳过易缓存僵死的 cdn——避免个别节点返回陈旧 status.json 导致"已停用却仍打开"。
+  var CDN_BASES = [
+    "https://fastly.jsdelivr.net/gh/347627014/sz-talent-data@main/",
+    "https://gcore.jsdelivr.net/gh/347627014/sz-talent-data@main/",
+    "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@main/"
+  ];
+  var STATUS_BASES = [
+    "https://fastly.jsdelivr.net/gh/347627014/sz-talent-data@main/",
+    "https://gcore.jsdelivr.net/gh/347627014/sz-talent-data@main/"
+  ];
+  function fetchJSON(path, bases) {
+    bases = bases || CDN_BASES;
+    var ts = Date.now();
+    function tryOne(i) {
+      if (i >= bases.length) return Promise.reject(new Error('all CDN bases failed'));
+      return fetch(bases[i] + path + '?ts=' + ts, { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(function () { return tryOne(i + 1); });
+    }
+    return tryOne(0);
+  }
   function ensureOverlay() {
     var o = document.getElementById('bootOverlay');
     if (o) return o;
@@ -449,39 +474,50 @@
   function checkStatus() {
     return new Promise(function (resolve) {
       if (typeof fetch !== 'function') { resolve(false); return; }   // 无 fetch 也无法确认状态 → 拦住（fail-closed）
-      fetch(BASE + 'status.json?ts=' + Date.now(), { cache: 'no-store' })
-        .then(function (r) { if (!r.ok) throw new Error('status HTTP ' + r.status); return r.json(); })
-        .then(function (st) {
-          if (st.enabled === false) {
-            block('平台已停用', st.message || '本平台已暂停使用，新版本发布后将自动恢复，请稍候。');
+      // 多域名共识：并行查询 STATUS_BASES（fastly/gcore 等更可靠节点，刻意跳过易僵死的 cdn）。
+      // 只要任一源明确 enabled===false 即拦截（优先保证"停用必拦"，避免被单一陈旧节点误导）；
+      // 全部成功且均 enabled===true 才放行；全部失败（跨域被拦/CDN 异常）一律拦截（fail-closed）。
+      var ts = Date.now();
+      var results = [];
+      var dones = 0;
+      function decide() {
+        for (var i = 0; i < results.length; i++) {
+          if (results[i] && results[i].enabled === false) {
+            var stf = results[i];
+            block('平台已停用', (stf.message || '') || '本平台已暂停使用，新版本发布后将自动恢复，请稍候。');
             resolve(false); return;
           }
-          var bv = (typeof BUILD_VERSION !== 'undefined' && BUILD_VERSION) ? String(BUILD_VERSION) : '';
-          if (bv && st.minVersion && bv < String(st.minVersion)) {
-            block('该版本已停用，请使用最新版', st.message);
-            resolve(false); return;
+        }
+        if (dones >= STATUS_BASES.length) {
+          var truthy = results.filter(function (st) { return st && st.enabled === true; });
+          if (truthy.length) {
+            var st0 = truthy[0];
+            var bv = (typeof BUILD_VERSION !== 'undefined' && BUILD_VERSION) ? String(BUILD_VERSION) : '';
+            if (bv && st0.minVersion && bv < String(st0.minVersion)) {
+              block('该版本已停用，请使用最新版', st0.message);
+              resolve(false); return;
+            }
+            resolve(true); return;
           }
-          resolve(true);
-        })
-        .catch(function () {
           block('平台已暂停访问', '无法连接服务确认平台状态，已暂停打开。请联网后重试，或联系管理员。');
-          resolve(false);
-        });
+          resolve(false); return;
+        }
+      }
+      STATUS_BASES.forEach(function (base, i) {
+        fetch(base + 'status.json?ts=' + ts, { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (st) { results[i] = st; dones++; decide(); })
+          .catch(function () { results[i] = null; dones++; decide(); });
+      });
     });
   }
   function boot() {
     if (typeof fetch !== 'function') { block('平台已暂停访问', '无法连接服务确认平台状态，已暂停打开。请联网后重试，或联系管理员。'); return; }   // 无 fetch 也拦住（fail-closed）
     ensureOverlay();
     setMsg('正在读取数据…');
-    checkStatus().then(function (ok) {
-      if (!ok) return; // 已被停用 / 版本过期拦截，不再加载应用
-      var ts = '?ts=' + Date.now();
-      function getJSON(url) {
-        return fetch(url, { cache: 'no-store' }).then(function (r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
-        });
-      }
-      Promise.all([getJSON(BASE + 'data.json' + ts), getJSON(BASE + 'match.json' + ts)])
+      checkStatus().then(function (ok) {
+        if (!ok) return; // 已被停用 / 版本过期拦截，不再加载应用
+        Promise.all([fetchJSON('data.json'), fetchJSON('match.json')])
         .then(function (res) {
           window.__DATA__ = res[0]; window.__MATCH__ = res[1];
           loadApp(true); mountStatus(res[0], true);
