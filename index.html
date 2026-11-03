@@ -424,9 +424,15 @@
     setMsg('在线获取失败，尝试使用本地打包数据…');
     var d = document.createElement('script'); d.src = 'assets/data.js';
     var m = document.createElement('script'); m.src = 'assets/match.js';
-    m.onload = function () { loadApp(false); mountStatus(window.__DATA__, false); };
-    m.onerror = function () { setMsg('本地数据也不存在，无法加载平台。'); showRetry(); };
+    function go() { loadApp(false); mountStatus(window.__DATA__, false); }
     document.head.appendChild(d); document.head.appendChild(m);
+    // 单文件版把 data/match 内联为 text/plain（构建时已改写 src->textContent），
+    // 追加即同步执行就绪；文件夹/CDN 版是外链脚本需等 onload。自适应两种情形。
+    if (window.__DATA__ && window.__MATCH__) { go(); }
+    else {
+      m.onload = go;
+      m.onerror = function () { setMsg('本地数据也不存在，无法加载平台。'); showRetry(); };
+    }
   }
   function boot() {
     if (typeof fetch !== 'function') { loadLocal(); return; }   // 环境无 fetch（jsdom/老浏览器）→ 直接用本地数据
