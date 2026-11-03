@@ -448,7 +448,7 @@
   // 仅"环境无 fetch"的老浏览器保留内联快照兜底（离线可用）。
   function checkStatus() {
     return new Promise(function (resolve) {
-      if (typeof fetch !== 'function') { resolve(true); return; }
+      if (typeof fetch !== 'function') { resolve(false); return; }   // 无 fetch 也无法确认状态 → 拦住（fail-closed）
       fetch(BASE + 'status.json?ts=' + Date.now(), { cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('status HTTP ' + r.status); return r.json(); })
         .then(function (st) {
@@ -470,7 +470,7 @@
     });
   }
   function boot() {
-    if (typeof fetch !== 'function') { loadLocal(); return; }   // 环境无 fetch（jsdom/老浏览器）→ 直接用本地数据
+    if (typeof fetch !== 'function') { block('平台已暂停访问', '无法连接服务确认平台状态，已暂停打开。请联网后重试，或联系管理员。'); return; }   // 无 fetch 也拦住（fail-closed）
     ensureOverlay();
     setMsg('正在读取数据…');
     checkStatus().then(function (ok) {
