@@ -105,6 +105,8 @@
 
         <div class="panel" id="matchUnitTable"></div>
 
+        <div class="panel" id="matchSpecTable"></div>
+
         <div class="panel" data-page-node-id="l2irwICVbVdUPcxtJr1XTT">
           <div class="panel-head" data-page-node-id="aJifWkX9naQXu8TR1XcxvW"><h2 data-page-node-id="WRf59liCQaNr0LHXMHZuW2">云网工程师等级分布</h2><span class="panel-tag" id="gradeTotal" data-page-node-id="XVl0KEwrCBgN8C8MLTEHDK"></span></div>
           <div class="panel-body" id="chartGrade" data-page-node-id="dD4I72mCtSg4cEuPO81tHE"></div>
@@ -247,7 +249,11 @@
               <button class="btn sm" id="expertExport" data-page-node-id="v2gyPRFVZkO7NEJkgvvYu0">导出当前结果</button>
             </div>
           </div>
-          <div class="filter-bar" id="expertFilter" data-page-node-id="nCIQaRNih56vc5gudxBsO6"></div>
+          <div class="expert-filter-row">
+            <div class="filter-bar" id="expertFilter" data-page-node-id="nCIQaRNih56vc5gudxBsO6"></div>
+            <div class="filter-bar" id="expertSearchBar" data-page-node-id="expSearchBar"></div>
+            <div class="filter-bar" id="expertCatFilter" data-page-node-id="expCatFilter"></div>
+          </div>
           <div class="panel-body no-pad" data-page-node-id="iKDTzNtSKNDhH7ObBVwJzW">
             <div class="table-wrap" id="expertTable" data-page-node-id="F9HlKiD2Q2iqbnYzQ8S1f8"></div>
           </div>
@@ -342,6 +348,7 @@
       <!-- ---------- 人岗匹配 ---------- -->
       <section class="view" id="view-match">
         <div class="panel" id="matchUnitTableTop"></div>
+        <div class="panel" id="matchSpecTableTop"></div>
         <div class="kpi-row" id="matchKpi"></div>
         <div class="panel">
           <div class="panel-head">
@@ -369,8 +376,75 @@
   </div>
 </div>
 
-<script src="assets/data.js"></script>
-<script src="assets/match.js"></script>
-<script src="assets/app.js"></script>
+<!-- 在线数据版引导：运行时从 jsDelivr 拉最新数据；失败回退本地 assets/data.js / match.js -->
+<script>
+(function () {
+  var BASE = "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@latest/";
+  function ensureOverlay() {
+    var o = document.getElementById('bootOverlay');
+    if (o) return o;
+    o = document.createElement('div');
+    o.id = 'bootOverlay';
+    o.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(244,248,252,.96);color:#0D2B54;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif';
+    o.innerHTML = '<div style="text-align:center;max-width:80%">' +
+      '<div style="font-size:15px;font-weight:700;margin-bottom:8px">网运线人才管理平台</div>' +
+      '<div id="bootMsg" style="color:#3a5a78">正在从在线获取最新数据…</div>' +
+      '<button id="bootRetry" style="display:none;margin-top:14px;padding:8px 18px;border:0;border-radius:8px;' +
+      'background:#006CB8;color:#fff;cursor:pointer;font-size:13px">重试</button></div>';
+    document.body.appendChild(o);
+    return o;
+  }
+  function setMsg(t) { var e = document.getElementById('bootMsg'); if (e) e.textContent = t; }
+  function showRetry() {
+    var b = document.getElementById('bootRetry');
+    if (b) { b.style.display = 'inline-block'; b.onclick = function () { b.style.display = 'none'; boot(); }; }
+  }
+  function mountStatus(d, online) {
+    var gen = (d && d.meta && d.meta.generated) || '未知';
+    var bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:9998;background:#006CB8;color:#fff;' +
+      'padding:7px 12px;border-radius:20px;font:12px/1.4 system-ui,"Microsoft YaHei",sans-serif;cursor:pointer;' +
+      'box-shadow:0 2px 8px rgba(0,40,90,.25)';
+    bar.title = '点击刷新数据';
+    bar.innerHTML = '数据更新于 ' + gen + (online ? ' · 在线' : ' · 本地');
+    bar.onclick = function () { location.reload(); };
+    document.body.appendChild(bar);
+  }
+  function loadApp(online) {
+    var s = document.createElement('script');
+    s.src = 'assets/app.js';
+    s.onload = function () { var o = document.getElementById('bootOverlay'); if (o) o.remove(); };
+    s.onerror = function () { setMsg('应用脚本加载失败，请重试'); showRetry(); };
+    document.head.appendChild(s);
+  }
+  function loadLocal() {
+    setMsg('在线获取失败，尝试使用本地打包数据…');
+    var d = document.createElement('script'); d.src = 'assets/data.js';
+    var m = document.createElement('script'); m.src = 'assets/match.js';
+    m.onload = function () { loadApp(false); mountStatus(window.__DATA__, false); };
+    m.onerror = function () { setMsg('本地数据也不存在，无法加载平台。'); showRetry(); };
+    document.head.appendChild(d); document.head.appendChild(m);
+  }
+  function boot() {
+    if (typeof fetch !== 'function') { loadLocal(); return; }   // 环境无 fetch（jsdom/老浏览器）→ 直接用本地数据
+    ensureOverlay();
+    setMsg('正在从在线获取最新数据…');
+    var ts = '?ts=' + Date.now();
+    function getJSON(url) {
+      return fetch(url, { cache: 'no-store' }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status); return r.json();
+      });
+    }
+    Promise.all([getJSON(BASE + 'data.json' + ts), getJSON(BASE + 'match.json' + ts)])
+      .then(function (res) {
+        window.__DATA__ = res[0]; window.__MATCH__ = res[1];
+        loadApp(true); mountStatus(res[0], true);
+      })
+      .catch(function () { loadLocal(); });
+  }
+  boot();
+})();
+</script>
 </body>
 </html>
