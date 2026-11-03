@@ -381,20 +381,15 @@
 (function () {
   // 数据固定从 @main 分支读取：分支 ref 不受 jsDelivr @latest 的 semver 解析影响，最稳定；
   // 发布时仍打 Release（semver 标签）以便固定版本分发。
-  // 多 CDN 域名容灾：个别 jsDelivr 边缘节点会出现单文件缓存僵死（如 status.json 长期不刷新、
-  // 停留在旧版），故状态/数据依次优先走 fastly → gcore → cdn，任一新鲜源返回即采用，
-  // 避免被单一陈旧节点误导导致"已停用却仍打开"。
+  // 数据走 jsDelivr 多域名容灾（fastly/gcore/cdn，对 4MB 级 data.json 稳定）；
+  // 状态(status.json)刻意不依赖 cdn.jsdelivr.net：实测它对 @main 小文件翻转缓存僵死
+  // （"启用"指令发出 20+ 分钟后边缘仍返回旧 enabled=false），会导致"已恢复却仍被拦"。
+  // 状态改用 STATUS_SOURCES（见下方）：raw + 内地可达镜像，均实时反映 GitHub 真身。
   var BASE = "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@main/";
-  // 数据多域名容灾（cdn 对数据可用）；状态只走 fastly/gcore 两个更可靠的节点，
-  // 刻意跳过易缓存僵死的 cdn——避免个别节点返回陈旧 status.json 导致"已停用却仍打开"。
   var CDN_BASES = [
     "https://fastly.jsdelivr.net/gh/347627014/sz-talent-data@main/",
     "https://gcore.jsdelivr.net/gh/347627014/sz-talent-data@main/",
     "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@main/"
-  ];
-  var STATUS_BASES = [
-    "https://fastly.jsdelivr.net/gh/347627014/sz-talent-data@main/",
-    "https://gcore.jsdelivr.net/gh/347627014/sz-talent-data@main/"
   ];
   function fetchJSON(path, bases) {
     bases = bases || CDN_BASES;
@@ -465,22 +460,25 @@
       '<div style="font-size:19px;font-weight:700;margin-bottom:12px;color:#D62728">' + title + '</div>' +
       '<div style="color:#3a5a78;font-size:13px">' + (msg || '') + '</div></div>';
   }
-  // 远程停用 / 版本门槛（kill switch）：status.json 与数据分离，状态走 @main 实时生效。
-  //   enabled===false          → 平台已停用（全局临时关停）
+  // 远程停用 / 版本门槛（kill switch）：status.json 与数据分离。
+  // 状态源只选"实时反映 GitHub 真身"的源：raw + 内地可达镜像（jsdmirror / ghproxy.net）。
+  // 刻意排除 cdn.jsdelivr.net：实测它对 @main 小文件翻转缓存僵死（启用指令 20+ 分钟不刷新）。
+  // 共识：任一源返回 enabled===false 即拦截（保证停用必拦）；全部成功且均 true 才放行；
+  // 全部失败（离线 / 跨域被拦 / 源全挂）一律拦截（fail-closed）。
+  //   enabled===false           → 平台已停用（全局临时关停）
   //   BUILD_VERSION < minVersion → 该版本已停用，必须用新文件
-  // 安全策略：状态读取失败（离线 / 跨域被拦 / CDN 异常）一律拦截（fail-closed），
-  // 确保"停用"对发出去的单文件真正拦得住（双击 file:// 打开时浏览器可能拦截跨域 fetch）。
-  // 仅"环境无 fetch"的老浏览器保留内联快照兜底（离线可用）。
+  var STATUS_SOURCES = [
+    "https://raw.githubusercontent.com/347627014/sz-talent-data/main/",
+    "https://cdn.jsdmirror.com/gh/347627014/sz-talent-data@main/",
+    "https://ghproxy.net/https://raw.githubusercontent.com/347627014/sz-talent-data/main/"
+  ];
   function checkStatus() {
     return new Promise(function (resolve) {
       if (typeof fetch !== 'function') { resolve(false); return; }   // 无 fetch 也无法确认状态 → 拦住（fail-closed）
-      // 多域名共识：并行查询 STATUS_BASES（fastly/gcore 等更可靠节点，刻意跳过易僵死的 cdn）。
-      // 只要任一源明确 enabled===false 即拦截（优先保证"停用必拦"，避免被单一陈旧节点误导）；
-      // 全部成功且均 enabled===true 才放行；全部失败（跨域被拦/CDN 异常）一律拦截（fail-closed）。
       var ts = Date.now();
-      var results = [];
-      var dones = 0;
+      var results = [], dones = 0;
       function decide() {
+        // 任一源明确停用即拦截（优先保证"停用必拦"，不被陈旧节点误导）
         for (var i = 0; i < results.length; i++) {
           if (results[i] && results[i].enabled === false) {
             var stf = results[i];
@@ -488,14 +486,13 @@
             resolve(false); return;
           }
         }
-        if (dones >= STATUS_BASES.length) {
+        if (dones >= STATUS_SOURCES.length) {
           var truthy = results.filter(function (st) { return st && st.enabled === true; });
           if (truthy.length) {
             var st0 = truthy[0];
             var bv = (typeof BUILD_VERSION !== 'undefined' && BUILD_VERSION) ? String(BUILD_VERSION) : '';
             if (bv && st0.minVersion && bv < String(st0.minVersion)) {
-              block('该版本已停用，请使用最新版', st0.message);
-              resolve(false); return;
+              block('该版本已停用，请使用最新版', st0.message); resolve(false); return;
             }
             resolve(true); return;
           }
@@ -503,7 +500,7 @@
           resolve(false); return;
         }
       }
-      STATUS_BASES.forEach(function (base, i) {
+      STATUS_SOURCES.forEach(function (base, i) {
         fetch(base + 'status.json?ts=' + ts, { cache: 'no-store' })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           .then(function (st) { results[i] = st; dones++; decide(); })
