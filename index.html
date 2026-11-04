@@ -464,18 +464,18 @@
   // 状态读取采用"顺序兜底"而非多源共识，避免单源缓存滞后导致误判：
   //   依次尝试 raw(GitHub 直连,权威即时) → ghproxy(镜像,通常新鲜) → cdn.jsdelivr(内地最可达,偶发滞后)；
   // ===== 平台状态开关（kill switch）=====
-  // 顺序兜底：依次尝试 raw → fastly.jsdelivr → gcore.jsdelivr → ghproxy，信任第 1 个真正返回的源。
+  // 顺序兜底：依次尝试 raw → fastly.jsdelivr → gcore.jsdelivr，信任第 1 个真正返回的源。
   //   - raw 权威即时（@main 直接生效），正常情况第 1 个即裁决；
-  //   - fastly / gcore 为 jsDelivr 镜像，支持 ?ts= 缓存击穿，国内可达且翻转新鲜，替代曾滞后的默认 cdn.jsdelivr；
-  //   - ghproxy 为 raw 直连代理（最后兜底），其不支持 "?" 查询串，故 bust:false 不加 ts，避免返回 "Invalid input."；
+  //   - fastly / gcore 为 jsDelivr 双后端镜像，支持 ?ts= 缓存击穿，国内可达且翻转新鲜，
+  //     替代曾滞后的默认 cdn.jsdelivr（其 @main 小文件翻转缓存偶发滞后）；
+  //   - ghproxy 直连代理实测对 @main / /main/ 均时好时坏，不可靠，故不纳入运行链；
   //   - 每个源 4s 超时（被墙快速跳过），均不可达(离线/被墙)才 fail-closed 拦截。
   //   enabled===false           → 平台已停用（全局临时关停）
   //   BUILD_VERSION < minVersion → 该版本已停用，必须用新文件
   var STATUS_SRC = [
-    { base: "https://raw.githubusercontent.com/347627014/sz-talent-data/main/",                                   bust: true  },
-    { base: "https://fastly.jsdelivr.net/gh/347627014/sz-talent-data@main/",                                      bust: true  },
-    { base: "https://gcore.jsdelivr.net/gh/347627014/sz-talent-data@main/",                                       bust: true  },
-    { base: "https://ghproxy.net/https://raw.githubusercontent.com/347627014/sz-talent-data@main/",                bust: false }
+    { base: "https://raw.githubusercontent.com/347627014/sz-talent-data/main/",        bust: true  },
+    { base: "https://fastly.jsdelivr.net/gh/347627014/sz-talent-data@main/",           bust: true  },
+    { base: "https://gcore.jsdelivr.net/gh/347627014/sz-talent-data@main/",            bust: true  }
   ];
   function fetchStatus(url) {
     var ctrl = new AbortController();
