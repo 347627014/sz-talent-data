@@ -461,17 +461,18 @@
       '<div style="color:#3a5a78;font-size:13px">' + (msg || '') + '</div></div>';
   }
   // 远程停用 / 版本门槛（kill switch）：status.json 与数据分离。
-  // 状态源设计（避免"镜像陈旧值覆盖权威值"导致启用不生效）：
-  //   主源 = raw.githubusercontent.com（GitHub 直连，权威即时，无缓存滞后）→ 直接裁决（停用即拦 / 启用即放）。
-  //   兜底 = 内地可达镜像（jsdmirror / ghproxy.net）：仅当 raw 不可达（内地偶发被墙/跨域）时才启用，
-  //          镜像间用"任一明确停用即拦、全部成功且均启用才放、全失败 fail-closed"共识尽力裁决。
-  //   刻意排除 cdn.jsdelivr.net：实测它对 @main 小文件翻转缓存僵死（启用指令 20+ 分钟不刷新）。
+  // 状态源 = 多源共识 [cdn.jsdelivr(内地可达 + purge 即时刷新) , raw(GitHub 直连权威即时) , ghproxy(镜像)]：
+  //   · 任一源明确 enabled===false → 立即拦截（保证"停用必拦"，即使某源滞后也由新鲜源纠正）。
+  //   · 全部成功且均 enabled===true → 放行。
+  //   · 全部失败（离线 / 跨域被拦 / CDN 异常）→ 拦截（fail-closed）。
+  //   设计要点：raw 永远权威即时；cdn.jsdelivr 经 set_status.py 自动 purge 即时刷新且内地可达。
+  //   两者互补——raw 被墙时有 cdn 兜底、cdn 偶发滞后时有 raw 纠正，避免"单源被墙/僵死"导致停用拦不住或启用不生效。
   //   enabled===false           → 平台已停用（全局临时关停）
   //   BUILD_VERSION < minVersion → 该版本已停用，必须用新文件
-  var STATUS_PRIMARY = "https://raw.githubusercontent.com/347627014/sz-talent-data/main/";
-  var STATUS_FALLBACK = [
-    "https://cdn.jsdmirror.com/gh/347627014/sz-talent-data@main/",
-    "https://ghproxy.net/https://raw.githubusercontent.com/347627014/sz-talent-data/main/"
+  var STATUS_SOURCES = [
+    "https://cdn.jsdelivr.net/gh/347627014/sz-talent-data@main/",
+    "https://raw.githubusercontent.com/347627014/sz-talent-data@main/",
+    "https://ghproxy.net/https://raw.githubusercontent.com/347627014/sz-talent-data@main/"
   ];
   function blockDisabled(st) {
     block('平台已停用', (st && st.message) || '本平台已暂停使用，新版本发布后将自动恢复，请稍候。');
@@ -480,11 +481,12 @@
     return new Promise(function (resolve) {
       if (typeof fetch !== 'function') { resolve(false); return; }   // 无 fetch 也无法确认状态 → 拦住（fail-closed）
       var ts = Date.now();
-      function decideFallback(results, dones) {
+      var results = [], dones = 0;
+      function decide() {
         for (var i = 0; i < results.length; i++) {
           if (results[i] && results[i].enabled === false) { blockDisabled(results[i]); resolve(false); return; }
         }
-        if (dones >= STATUS_FALLBACK.length) {
+        if (dones >= STATUS_SOURCES.length) {
           var truthy = results.filter(function (st) { return st && st.enabled === true; });
           if (truthy.length) {
             var st0 = truthy[0];
@@ -496,25 +498,12 @@
           resolve(false); return;
         }
       }
-      // 主源 raw：权威即时，直接裁决（不被镜像陈旧值误导）
-      fetch(STATUS_PRIMARY + 'status.json?ts=' + ts, { cache: 'no-store' })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (st) {
-          if (st.enabled === false) { blockDisabled(st); resolve(false); return; }
-          var bv = (typeof BUILD_VERSION !== 'undefined' && BUILD_VERSION) ? String(BUILD_VERSION) : '';
-          if (bv && st.minVersion && bv < String(st.minVersion)) { block('该版本已停用，请使用最新版', st.message); resolve(false); return; }
-          resolve(true);
-        })
-        .catch(function () {
-          // raw 不可达（内地偶发被墙/跨域被拦）→ 退化到镜像共识，尽力裁决
-          var results = [], dones = 0;
-          STATUS_FALLBACK.forEach(function (base, i) {
-            fetch(base + 'status.json?ts=' + ts, { cache: 'no-store' })
-              .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-              .then(function (st) { results[i] = st; dones++; decideFallback(results, dones); })
-              .catch(function () { results[i] = null; dones++; decideFallback(results, dones); });
-          });
-        });
+      STATUS_SOURCES.forEach(function (base, i) {
+        fetch(base + 'status.json?ts=' + ts, { cache: 'no-store' })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (st) { results[i] = st; dones++; decide(); })
+          .catch(function () { results[i] = null; dones++; decide(); });
+      });
     });
   }
   function boot() {
