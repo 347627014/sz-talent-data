@@ -460,9 +460,6 @@
       '<div style="font-size:19px;font-weight:700;margin-bottom:12px;color:#D62728">' + title + '</div>' +
       '<div style="color:#3a5a78;font-size:13px">' + (msg || '') + '</div></div>';
   }
-  // 远程停用 / 版本门槛（kill switch）：status.json 与数据分离。
-  // 状态读取采用"顺序兜底"而非多源共识，避免单源缓存滞后导致误判：
-  //   依次尝试 raw(GitHub 直连,权威即时) → ghproxy(镜像,通常新鲜) → cdn.jsdelivr(内地最可达,偶发滞后)；
   // ===== 平台状态开关（kill switch）=====
   // 顺序兜底：依次尝试 raw → fastly.jsdelivr → gcore.jsdelivr，信任第 1 个真正返回的源。
   //   - raw 权威即时（@main 直接生效），正常情况第 1 个即裁决；
@@ -519,6 +516,11 @@
         if (!ok) return; // 已被停用 / 版本过期拦截，不再加载应用
         Promise.all([fetchJSON('data.json'), fetchJSON('match.json')])
         .then(function (res) {
+          // 防 CDN 旧缓存覆盖：若本文件内联快照比线上数据更新（或线上无版本），坚持用内联快照。
+          // INLINE_GENERATED 由 build_online_single.js 注入；文件夹版未定义，此时用线上数据。
+          var ig = (typeof INLINE_GENERATED !== 'undefined') ? INLINE_GENERATED : '';
+          var og = (res[0] && res[0].meta && res[0].meta.generated) || '';
+          if (ig && (!og || og < ig)) { loadLocal(); return; }
           window.__DATA__ = res[0]; window.__MATCH__ = res[1];
           loadApp(true); mountStatus(res[0], true);
         })
