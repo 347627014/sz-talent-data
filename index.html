@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="aEOxsXKjtuZbdzDJexsvEz">
 <title>深圳分公司网运线人才管理平台</title>
 <link rel="stylesheet" href="assets/style.css" data-page-node-id="wFM3pYB48arN4OEeG5UdA5">
+<style>
+/* 暂时关闭的模块：保留 DOM 与渲染代码，仅隐藏入口/页面，方便后续按需恢复 */
+[data-module-off] { display: none !important; }
+</style>
 </head>
 <body data-page-node-id="izGaX7Xw17F9HfkhCqEcIx">
 
@@ -43,11 +47,11 @@
           <svg viewBox="0 0 20 20" data-page-node-id="cU1FY5DCIN0UWrgBm5uL01"><path d="M8.5 3a5.5 5.5 0 1 1-3.6 9.67l-2.6 2.6a1 1 0 0 1-1.42-1.42l2.6-2.6A5.5 5.5 0 0 1 8.5 3zm0 2a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z" fill="currentColor" data-page-node-id="kWy4r669FsX4u5NBjj2Juj"/><path d="M11 11h8v1.6h-8z" fill="currentColor" data-page-node-id="Bfpt5piwjMlReUQsZN3RAB"/></svg>
           <span data-page-node-id="GLEJ0Fx03soD8U2zBLcZwd">认证检索</span>
         </a>
-      <a class="nav-item" data-view="exam" data-page-node-id="hbfkG4O1EFMd3QDDad197E">
+      <a class="nav-item" data-view="exam" data-module-off="exam" data-page-node-id="hbfkG4O1EFMd3QDDad197E">
         <svg viewBox="0 0 20 20" data-page-node-id="rCmSx9gLHmdar8wACqIkzT"><path d="M4 3h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v12h12V5H4zm2 2h8v2H6V7zm0 4h8v2H6v-2zm0 4h5v2H6v-2z" fill="currentColor" data-page-node-id="dWrvnh1BEy5Cui2BHWdw6w"/></svg>
         <span data-page-node-id="zeljdXwCAEr7pzpUsNHphM">认证报名信息</span>
       </a>
-      <a class="nav-item" data-view="expert" data-page-node-id="xj37yrQG4XJ4mqfDHqHbsv">
+      <a class="nav-item" data-view="expert" data-module-off="expert" data-page-node-id="xj37yrQG4XJ4mqfDHqHbsv">
         <svg viewBox="0 0 20 20" data-page-node-id="rGMEkbVhgnk63lTwbqfdsA"><path d="M10 2l2.3 4.9 5.2.7-3.8 3.7.9 5.3L10 14.2 5.4 16.6l.9-5.3L2.5 7.6l5.2-.7z" fill="currentColor" data-page-node-id="ThmzqMyVdbmd6q0pkWZA4U"/></svg>
         <span data-page-node-id="1bFXxIarZTTgEB36ES8oAH">专家 L3 认证</span>
         <em class="nav-badge" id="navExpBadge" data-page-node-id="z1PUQMNKnQEfstEuMnJHwn"></em>
@@ -116,7 +120,7 @@
           <div class="panel-body no-pad" id="progressTables" data-page-node-id="4xGYRRCICX1NsYA6fC7iLO"></div>
         </div>
 
-        <div class="panel" data-page-node-id="zb9xO1jwiJHxcFSMU2IU0k">
+        <div class="panel" data-module-off="expert" data-page-node-id="zb9xO1jwiJHxcFSMU2IU0k">
           <div class="panel-head" data-page-node-id="pxFdH93jVq0MAp0CCErsPa">
             <h2 data-page-node-id="rUEc1C8SDcpk49QCUDArvG">专家 L3 认证达标总览（云网类）</h2>
             <button class="btn-link" data-goto="expert" data-page-node-id="lmRpzRnjDpC3k4syVk2aVs">进入专家看板 →</button>
@@ -204,7 +208,7 @@
       </section>
 
       <!-- ---------- 认证报名信息 ---------- -->
-      <section class="view" id="view-exam" data-page-node-id="Jcs02MjpMTJPiQEy8v0IQH">
+      <section class="view" id="view-exam" data-module-off="exam" data-page-node-id="Jcs02MjpMTJPiQEy8v0IQH">
         <div class="alert-banner" style="background:var(--brand-lt);border-color:var(--brand)">
           <svg class="ab-icon" viewBox="0 0 20 20" style="color:var(--brand)"><path d="M4 3h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v12h12V5H4zm2 2h8v2H6V7zm0 4h8v2H6v-2zm0 4h5v2H6v-2z" fill="currentColor"/></svg>
           <div><div class="ab-title" style="color:var(--brand-dk)">报名入口：人才云 - 个人中心 - 在线认证 - 认证详细报名及考试</div>
@@ -237,7 +241,7 @@
       </section>
 
       <!-- ---------- 专家 L3 ---------- -->
-      <section class="view" id="view-expert" data-page-node-id="oBAfLlDJBGD4A6d6KAOtbw">
+      <section class="view" id="view-expert" data-module-off="expert" data-page-node-id="oBAfLlDJBGD4A6d6KAOtbw">
         <div class="alert-banner" id="expertAlert" data-page-node-id="oQzbmXG9gnYoNnWoFXVn8a"></div>
         <div class="kpi-row" id="expertKpi" data-page-node-id="gVWhBkXhtUYFsuHWLzjBx2"></div>
 
