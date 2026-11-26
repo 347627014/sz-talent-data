@@ -255,7 +255,10 @@ var VIEW_META = {
   work:      ['认证规则查询', '25年云网工程师认证规则与标签合成规则查询'],
   match:     ['人岗匹配情况', '考核云网线人员岗位与所持认证是否匹配（L1 按岗位所需认证 / L2 任一 L2+ 认证）']
 };
+/* 暂时关闭的视图：只保留 DOM 和渲染函数，禁止入口/程序跳转到这两个模块，后续恢复时清空该表即可 */
+var DISABLED_VIEWS = { exam: true, expert: true };
 function switchView(v) {
+  if (DISABLED_VIEWS[v]) return;
   $$('.nav-item').forEach(function (a) { a.classList.toggle('active', a.dataset.view === v); });
   $$('.view').forEach(function (s) { s.classList.toggle('active', s.id === 'view-' + v); });
   $('#viewTitle').textContent = VIEW_META[v][0];
